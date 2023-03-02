@@ -24,9 +24,14 @@ jobs:
           username = "$SKOLE_USERNAME"
           password = "$SKOLE_PASSWORD"
 
-          [telegram]
-          token = "$TELEGRAM_TOKEN"
-          chatids = [ "$TELEGRAM_CHATID" ]
+          [mail]
+          server = "smtp.gmail.com"
+          port = "587"
+          username = "$EMAIL_PRVI"
+          password = "$EMAIL_PASSWORD"
+          from = "$EMAIL_ODAKLEN"
+          subject = "Nova ocjena iz e-Dnevnika"
+          to = [ "$EMAIL_PRVI", "$EMAIL_DRUGI" ]
           EOF
         env:
           SKOLE_USERNAME: ${{ secrets.SKOLE_USERNAME }}
