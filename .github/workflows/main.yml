@@ -36,8 +36,10 @@ jobs:
         env:
           SKOLE_USERNAME: ${{ secrets.SKOLE_USERNAME }}
           SKOLE_PASSWORD: ${{ secrets.SKOLE_PASSWORD }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHATID: ${{ secrets.TELEGRAM_CHATID }}
+          EMAIL_PRVI: ${{ secrets.EMAIL_PRVI }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_DRUGI: ${{ secrets.EMAIL_DRUGI }}
+          EMAIL_ODAKLEN: ${{ secrets.EMAIL_ODAKLEN }}
 
       - name: Run dkorunic/e-dnevnik-bot
         run: |
