@@ -25,10 +25,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/fetch"
-	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
-
 	"github.com/avast/retry-go/v4"
+	"github.com/dkorunic/e-dnevnik-bot/fetch"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
 // GetGradesAndEvents initiates fetching subjects, grades and exam events from remote e-dnevnik site, sends
@@ -43,13 +43,27 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			return err
 		}
 
-		// attempt to fetch subjects/grades/exams
-		var rawGrades string
-		var events fetch.Events
+		defer client.CloseConnections()
+
+		// attempt to login (CSRF, SSO/SAML, etc.)
+		err = retry.Do(
+			func() error {
+				return client.Login()
+			},
+			retry.Attempts(retries),
+			retry.Context(ctx),
+		)
+		if err != nil {
+			return err
+		}
+
+		var rawClasses string
+
+		// fetch classes (multiple classes possible)
 		err = retry.Do(
 			func() error {
 				var err error
-				rawGrades, events, err = client.GetResponse()
+				rawClasses, err = client.GetClasses()
 
 				return err
 			},
@@ -60,16 +74,61 @@ func GetGradesAndEvents(ctx context.Context, ch chan<- msgtypes.Message, usernam
 			return err
 		}
 
-		// parse all subjects and corresponding grades
-		err = parseGrades(ch, username, rawGrades)
+		// parse active classes
+		classes, err := parseClasses(username, rawClasses)
 		if err != nil {
 			return err
 		}
 
-		// parse all exam events
-		err = parseEvents(ch, username, events)
+		multiClass := len(classes) > 1
 
-		return err
+		if multiClass {
+			logger.Debug().Msgf("Found multiple active classes for user %v: %+v", username, classes)
+		} else {
+			logger.Debug().Msgf("Found active class for user %v: %+v", username, classes)
+		}
+
+		// iterate all active classes
+		for _, c := range classes {
+			cID := c.ID
+			cName := c.Name
+
+			logger.Debug().Msgf("Fetching grades and calendar events for user %v, class %v, class ID %v", username,
+				cName, cID)
+
+			var rawGrades string
+
+			var events fetch.Events
+
+			// fetch subjects/grades/exams
+			err = retry.Do(
+				func() error {
+					var err error
+					rawGrades, events, err = client.GetClassEvents(cID)
+
+					return err
+				},
+				retry.Attempts(retries),
+				retry.Context(ctx),
+			)
+			if err != nil {
+				return err
+			}
+
+			// parse all subjects and corresponding grades
+			err = parseGrades(ch, username, rawGrades, multiClass, cName)
+			if err != nil {
+				return err
+			}
+
+			// parse all exam events
+			err = parseEvents(ch, username, events, multiClass, cName)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}()
 
 	return err

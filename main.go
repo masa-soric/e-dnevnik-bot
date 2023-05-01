@@ -34,14 +34,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-
-	"github.com/mattn/go-isatty"
-
-	"github.com/dkorunic/e-dnevnik-bot/logger"
-
 	_ "github.com/KimMachineGun/automemlimit"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
+	"github.com/mattn/go-isatty"
+	"github.com/rs/zerolog"
 	"go.uber.org/automaxprocs/maxprocs"
 )
 
@@ -52,11 +49,16 @@ const (
 	testSubject     = "Ovo je testni predmet"
 	testDescription = "Testni opis"
 	testField       = "Testna vrijednost"
+	envGOMEMLIMIT   = "GOMEMLIMIT"
 )
 
 var (
 	exitWithError atomic.Bool
 	ErrMaxProc    = errors.New("failed to set GOMAXPROCS")
+	GitTag        = ""
+	GitCommit     = ""
+	GitDirty      = ""
+	BuildTime     = ""
 )
 
 func fatalIfErrors() {
@@ -64,6 +66,7 @@ func fatalIfErrors() {
 		logger.Warn().Msg("Exiting, during run some errors were encountered.")
 		os.Exit(1)
 	}
+
 	logger.Info().Msg("Exiting with a success.")
 }
 
@@ -75,11 +78,13 @@ func main() {
 	if *debug {
 		logLevel = zerolog.DebugLevel
 	} else {
-		l, err := strconv.Atoi(os.Getenv("LOG_LEVEL"))
-		if err != nil {
-			logLevel = zerolog.Level(l)
+		if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
+			if l, err := strconv.Atoi(v); err != nil {
+				logLevel = zerolog.Level(l)
+			}
 		}
 	}
+
 	zerolog.SetGlobalLevel(logLevel)
 
 	// enable slow colored console logging
@@ -92,11 +97,20 @@ func main() {
 			Logger()
 	}
 
+	logger.Info().Msgf("e-dnevnik-bot %v %v%v, built on: %v", GitTag, GitCommit, GitDirty, BuildTime)
+
 	// auto-configure GOMAXPROCS
 	undo, err := maxprocs.Set()
 	defer undo()
+
 	if err != nil {
 		logger.Warn().Msgf("%v: %v", ErrMaxProc, err)
+	}
+
+	logger.Debug().Msgf("GOMAXPROCS limit is set to: %v", runtime.GOMAXPROCS(0))
+
+	if v, ok := os.LookupEnv(envGOMEMLIMIT); ok {
+		logger.Debug().Msgf("GOMEMLIMIT is set to: %v", v)
 	}
 
 	// context with signal integration
@@ -133,6 +147,7 @@ func main() {
 
 		defer func() {
 			runtime.GC()
+
 			if err := pprof.WriteHeapProfile(f); err != nil {
 				logger.Fatal().Msgf("Error writing memory profile: %v", err)
 			}
@@ -158,6 +173,7 @@ func main() {
 		close(gradesMsg)
 
 		var wgMsg sync.WaitGroup
+
 		msgSend(ctx, &wgMsg, gradesMsg, config)
 		wgMsg.Wait()
 
@@ -182,10 +198,13 @@ func main() {
 		case <-ctx.Done():
 			logger.Info().Msg("Received stop signal, asking all routines to stop")
 			ticker.Stop()
+
 			go stop()
+
 			if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
 				go spinner()
 			}
+
 			time.Sleep(exitDelay)
 			fatalIfErrors()
 
@@ -197,18 +216,18 @@ func main() {
 			// reset exit error status
 			exitWithError.Store(false)
 
-			// subjects/grades/exams scraper routines
 			gradesScraped := make(chan msgtypes.Message, chanBufLen)
-			var wgScrape sync.WaitGroup
+			gradesMsg := make(chan msgtypes.Message, chanBufLen)
+
+			var wgScrape, wgFilter, wgMsg sync.WaitGroup
+
+			// subjects/grades/exams scraper routines
 			scrapers(ctx, &wgScrape, gradesScraped, config)
 
 			// message/alert database checking routine
-			gradesMsg := make(chan msgtypes.Message, chanBufLen)
-			var wgFilter sync.WaitGroup
 			msgDedup(ctx, &wgFilter, gradesScraped, gradesMsg)
 
 			// messenger routines
-			var wgMsg sync.WaitGroup
 			msgSend(ctx, &wgMsg, gradesMsg, config)
 
 			wgScrape.Wait()
@@ -222,6 +241,7 @@ func main() {
 
 				return
 			}
+
 			logger.Info().Msg("Scheduled run completed, will sleep now")
 		}
 	}

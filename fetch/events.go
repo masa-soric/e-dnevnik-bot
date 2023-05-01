@@ -37,10 +37,12 @@ const (
 func (e *Events) ConsumeICal(c *goics.Calendar, err error) error {
 	for _, el := range c.Events {
 		node := el.Data
+
 		dtstart, err := dateparse.ParseLocal(node[EventDateStart].Val)
 		if err != nil {
 			return err
 		}
+
 		d := Event{
 			Start:       dtstart,
 			Description: node[EventDescription].Val,

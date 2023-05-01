@@ -24,13 +24,10 @@ package scrape
 import (
 	"strings"
 
-	"github.com/dkorunic/e-dnevnik-bot/logger"
-
-	"github.com/dkorunic/e-dnevnik-bot/fetch"
-
-	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
-
 	"github.com/PuerkitoBio/goquery"
+	"github.com/dkorunic/e-dnevnik-bot/fetch"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
 const (
@@ -42,11 +39,12 @@ const (
 
 // parseGrades extracts grades per subject from raw string (grade scrape response body) and grade descriptions,
 // constructs grade messages and sends them a message channel, optionally returning an error.
-func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string) error {
+func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string, multiClass bool, className string) error {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawGrades))
 	if err != nil {
 		return err
 	}
+
 	var parsedGrades int
 
 	// each subject has a div with class "table-container new-grades-table"
@@ -56,6 +54,11 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string) error {
 			subject, subjectOK := table.Attr("data-action-id")
 			if !subjectOK {
 				return
+			}
+
+			// if multiclass, append class name to subject
+			if multiClass {
+				subject = strings.Join([]string{subject, className}, " / ")
 			}
 
 			var descriptions []string
@@ -95,7 +98,7 @@ func parseGrades(ch chan<- msgtypes.Message, username, rawGrades string) error {
 		})
 
 	if parsedGrades == 0 {
-		logger.Debug().Msgf("No grades found in the scraped content for user %v", username)
+		logger.Info().Msgf("No grades found in the scraped content for user %v", username)
 	}
 
 	return nil
@@ -112,15 +115,20 @@ func cleanEventDescription(summary string) string {
 
 // parseEvents processes Events array, emitting a single exam message for each event, optionally returning an
 // error.
-func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Events) error {
+func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Events, multiClass bool, className string) error {
 	if len(events) == 0 {
-		logger.Debug().Msgf("No scheduled exams for user %v", username)
+		logger.Info().Msgf("No scheduled exams for user %v", username)
 	}
 
 	for _, ev := range events {
 		subject := cleanEventDescription(ev.Summary)
 		description := cleanEventDescription(ev.Description)
 		timestamp := ev.Start.Format(TimeFormat)
+
+		// if multiclass, append class name to subject
+		if multiClass {
+			subject = strings.Join([]string{subject, className}, " / ")
+		}
 
 		// send each event through channel
 		ch <- msgtypes.Message{
@@ -141,4 +149,60 @@ func parseEvents(ch chan<- msgtypes.Message, username string, events fetch.Event
 	}
 
 	return nil
+}
+
+// parseClasses extracts active classes from raw string (classes scrape response body) and constructs Classes structure
+// with class ID, name, school name and year of enlistment.
+func parseClasses(username, rawClasses string) (fetch.Classes, error) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawClasses))
+	if err != nil {
+		return fetch.Classes{}, err
+	}
+
+	var parsedClasses int
+
+	var classes fetch.Classes
+
+	// fetch all active classes
+	doc.Find("div.student-list > div.classes").
+		Each(func(i int, row *goquery.Selection) {
+			// div active classes are class-menu-vertical and not past-schoolyear
+			row.Find("div.class-menu-vertical:not(div.past-schoolyear) > div.class-info").
+				Each(func(j int, column *goquery.Selection) {
+					var c fetch.Class
+					var idOK bool
+
+					c.ID, idOK = column.Attr("data-action-id")
+					if !idOK {
+						return
+					}
+
+					// class name
+					column.Find("div.class > span.bold").
+						Each(func(k int, span *goquery.Selection) {
+							c.Name = strings.TrimSpace(span.Text())
+						})
+
+					// class year
+					column.Find("div.class > span.class-schoolyear").
+						Each(func(k int, span *goquery.Selection) {
+							c.Year = strings.TrimSpace(span.Text())
+						})
+
+					// class school
+					column.Find("div.school-name").
+						Each(func(k int, span *goquery.Selection) {
+							c.School = strings.TrimSpace(span.Text())
+						})
+
+					classes = append(classes, c)
+					parsedClasses++
+				})
+		})
+
+	if parsedClasses == 0 {
+		logger.Info().Msgf("No active classes found in the scraped content for user %v", username)
+	}
+
+	return classes, nil
 }

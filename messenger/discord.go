@@ -28,14 +28,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/format"
-
 	"github.com/avast/retry-go/v4"
-
-	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
-
 	"github.com/bwmarrin/discordgo"
+	"github.com/dkorunic/e-dnevnik-bot/format"
 	"github.com/dkorunic/e-dnevnik-bot/logger"
+	"github.com/dkorunic/e-dnevnik-bot/msgtypes"
 )
 
 const (
@@ -57,6 +54,7 @@ func Discord(ctx context.Context, ch <-chan interface{}, token string, userIDs [
 	if token == "" {
 		return fmt.Errorf("%w", ErrDiscordEmptyAPIKey)
 	}
+
 	if len(userIDs) == 0 {
 		return fmt.Errorf("%w", ErrDiscordEmptyUserIds)
 	}

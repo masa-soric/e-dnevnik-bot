@@ -25,9 +25,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/dkorunic/e-dnevnik-bot/logger"
-
 	"github.com/dkorunic/e-dnevnik-bot/db"
+	"github.com/dkorunic/e-dnevnik-bot/logger"
 	"github.com/pborman/getopt/v2"
 )
 
@@ -70,6 +69,7 @@ func parseFlags() {
 	}
 
 	var err error
+
 	tickInterval, err = time.ParseDuration(*tickIntervalString)
 	if err != nil {
 		logger.Fatal().Msgf("Unable to parse the poll interval %v: %v", tickIntervalString, err)
@@ -77,6 +77,7 @@ func parseFlags() {
 
 	if tickInterval < time.Hour {
 		logger.Info().Msg("Poll interval is below 1h, so I will default to 1h")
+
 		tickInterval = time.Hour
 	}
 }

@@ -41,6 +41,8 @@ func PlainMsg(username, subject string, isExam bool, descriptions, grade []strin
 }
 
 // plainFormatGrades formats grade descriptions and values.
+//
+//nolint:interfacer
 func plainFormatGrades(sb *strings.Builder, descriptions, grade []string) {
 	for i := range grade {
 		// grade listing will print scraped corresponding descriptions
@@ -52,12 +54,15 @@ func plainFormatGrades(sb *strings.Builder, descriptions, grade []string) {
 }
 
 // PlainFormatSubject adds cleartext header containing prefix (event/grade), username and subject.
+//
+//nolint:interfacer
 func PlainFormatSubject(sb *strings.Builder, user, subject string, isExam bool) {
 	if isExam {
 		sb.WriteString(EventPrefix)
 	} else {
 		sb.WriteString(GradePrefix)
 	}
+
 	sb.WriteString(user)
 	sb.WriteString(" / ")
 	sb.WriteString(subject)

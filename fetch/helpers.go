@@ -29,9 +29,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/jordic/goics"
-
 	"github.com/PuerkitoBio/goquery"
+	"github.com/jordic/goics"
 )
 
 var (
@@ -46,7 +45,10 @@ func (c *Client) getCSRFToken() error {
 	if err != nil {
 		return err
 	}
+
 	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -68,8 +70,9 @@ func (c *Client) getCSRFToken() error {
 		return err
 	}
 
-	// csrf_token is hidden in the input form
 	var csrfTokenExists bool
+
+	// csrf_token is hidden in the input form
 	doc.Find(`form > input[name="csrf_token"]`).
 		Each(func(i int, s *goquery.Selection) {
 			c.csrfToken, csrfTokenExists = s.Attr("value")
@@ -99,12 +102,16 @@ func (c *Client) doSAMLRequest() error {
 		"password":   {c.password},
 		"csrf_token": {c.csrfToken},
 	}
+
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, u.String(), strings.NewReader(data.Encode()))
 	if err != nil {
 		return err
 	}
+
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", LoginURL)
 
 	resp, err := c.httpClient.Do(req)
@@ -140,7 +147,10 @@ func (c *Client) getGrades() (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", LoginURL)
 
 	resp, err := c.httpClient.Do(req)
@@ -177,7 +187,10 @@ func (c *Client) getCalendar() (Events, error) {
 	if err != nil {
 		return Events{}, err
 	}
+
 	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", LoginURL)
 
 	resp, err := c.httpClient.Do(req)
@@ -203,9 +216,88 @@ func (c *Client) getCalendar() (Events, error) {
 	// decode ICS events
 	d := goics.NewDecoder(strings.NewReader(string(body)))
 	evs := Events{}
+
 	if err = d.Decode(&evs); err != nil {
 		return Events{}, err
 	}
 
 	return evs, nil
+}
+
+// getClasses fetches all old and new classes and returns them as a raw body string.
+func (c *Client) getClasses() (string, error) {
+	u, err := url.Parse(ClassURL)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
+	req.Header.Set("Referer", LoginURL)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		select {
+		case <-c.ctx.Done():
+			return "", c.ctx.Err()
+		default:
+			return "", err
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(body), nil
+}
+
+func (c *Client) doClassAction(classID string) error {
+	u, err := url.Parse(fmt.Sprintf(ClassActionURL, classID))
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
+	req.Header.Set("Referer", LoginURL)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		select {
+		case <-c.ctx.Done():
+			return c.ctx.Err()
+		default:
+			return err
+		}
+	}
+	defer resp.Body.Close()
+
+	// regular /class_action responses are HTTP 200 or HTTP 302 with redirect to /course
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
+		return fmt.Errorf("%w: %v", ErrUnexpectedStatus, resp.StatusCode)
+	}
+
+	// drain rest of the body
+	io.Copy(io.Discard, resp.Body) //nolint:errcheck
+
+	return err
 }
